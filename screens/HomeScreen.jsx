@@ -3,6 +3,8 @@ import React from "react";
 import ScreenWrapper from "../components/screenWrapper";
 import { colors } from "../theme";
 import randomImage from "../assets/images/randomImage";
+import EmptyList from "../components/emptyList";
+import { useNavigation } from "@react-navigation/native";
 
 const items = [
   {
@@ -38,6 +40,7 @@ const items = [
 ];
 
 export default function HomeScreen() {
+  const navigation = useNavigation();
   return (
     <ScreenWrapper className="flex-1">
       {/* View For Top Bar */}
@@ -62,7 +65,10 @@ export default function HomeScreen() {
           <Text className={`${colors.heading} font-bold text-xl`}>
             Recent Trips
           </Text>
-          <TouchableOpacity className="p-2 px-3 bg-white border border-gray-200 rounded-full">
+          <TouchableOpacity
+            onPress={() => navigation.navigate("AddTrip")}
+            className="p-2 px-3 bg-white border border-gray-200 rounded-full"
+          >
             <Text className={colors.heading}>Add Trips</Text>
           </TouchableOpacity>
         </View>
@@ -70,6 +76,9 @@ export default function HomeScreen() {
           <FlatList
             data={items}
             numColumns={2}
+            ListEmptyComponent={
+              <EmptyList message={"No Trips Recorded Till Now"} />
+            }
             keyExtractor={(item) => item.id}
             showsVerticalScrollIndicator={false}
             columnWrapperStyle={{
