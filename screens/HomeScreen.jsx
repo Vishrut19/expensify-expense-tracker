@@ -6,7 +6,7 @@ import randomImage from "../assets/images/randomImage";
 import EmptyList from "../components/emptyList";
 import { useNavigation } from "@react-navigation/native";
 
-const items = [
+const trips = [
   {
     id: 1,
     place: "Gujarat",
@@ -26,16 +26,6 @@ const items = [
     id: 4,
     place: "Paris",
     country: "France",
-  },
-  {
-    id: 5,
-    place: "Ahemdabad",
-    country: "India",
-  },
-  {
-    id: 6,
-    place: "KL",
-    country: "Malaysia",
   },
 ];
 
@@ -74,26 +64,29 @@ export default function HomeScreen() {
         </View>
         <View className={{ height: 430 }}>
           <FlatList
-            data={items}
+            data={trips}
             numColumns={2}
             ListEmptyComponent={
               <EmptyList message={"No Trips Recorded Till Now"} />
             }
-            keyExtractor={(item) => item.id}
-            showsVerticalScrollIndicator={false}
+            keyExtractor={(trip) => trip.id}
+            showsVerticalScrollIndicator={true}
             columnWrapperStyle={{
               justifyContent: "space-between",
             }}
             className="mx-1"
-            renderItem={({ item }) => (
-              <TouchableOpacity className="bg-white p-3 rounded-2xl mb-3 shadow-sm">
+            renderItem={({ item: trip }) => (
+              <TouchableOpacity
+                onPress={() => navigation.navigate("TripExpenses", { ...trip })}
+                className="bg-white p-3 rounded-2xl mb-3 shadow-sm"
+              >
                 <View>
                   <Image source={randomImage()} className="w-36 h-36 mb-2" />
                   <Text className={`${colors.heading} font-bold`}>
-                    {item.place}
+                    {trip.place}
                   </Text>
                   <Text className={`${colors.heading} text-xs`}>
-                    {item.country}
+                    {trip.country}
                   </Text>
                 </View>
               </TouchableOpacity>

@@ -1,17 +1,17 @@
-import { TouchableOpacity, Text } from "react-native";
-import React from "react";
+import { TouchableOpacity } from "react-native";
 import { ChevronLeftIcon } from "react-native-heroicons/outline";
 import { colors } from "../theme";
 import { useNavigation } from "@react-navigation/native";
 
 export default function BackButton() {
   const navigation = useNavigation();
+
   return (
     <TouchableOpacity
       onPress={() => navigation.goBack()}
-      className="bg-white rounded-full h-8 w-8"
+      className="bg-white rounded-full h-10 w-10 items-center justify-center"
     >
-      <ChevronLeftIcon size="30" color={colors.button} />
+      <ChevronLeftIcon size={25} color={colors.button} />
     </TouchableOpacity>
   );
 }
