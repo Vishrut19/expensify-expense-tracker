@@ -4,18 +4,42 @@ import ScreenWrapper from "../components/screenWrapper";
 import { colors } from "../theme";
 import BackButton from "../components/backButton";
 import { useNavigation } from "@react-navigation/native";
+import Snackbar from "react-native-snackbar";
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { useDispatch } from "react-redux";
+import { auth } from "../config/firebase";
+import Loading from "../components/loading";
+
 export default function SignInScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const { setUserLoading } = useSelector((state) => state.user);
+  const dispatch = useDispatch();
   const navigation = useNavigation();
 
-  const handleAddTrip = () => {
+  const handleAddTrip = async () => {
     if (email && password) {
       // Good to Gos
-      navigation.goBack(); //This is used to Dismiss the Modal or popup and then we are navigated to Home Screen
-      navigation.navigate("Home");
+      // navigation.goBack();
+      // navigation.navigate("Home");
+      // Firebase Method of Authentication i.e. Email and Password is used to create a new user
+      try {
+        dispatch(setUserLoading(true));
+        await createUserWithEmailAndPassword(auth, email, password);
+        dispatch(setUserLoading(false));
+      } catch (error) {
+        dispatch(setUserLoading(false));
+        Snackbar.show({
+          text: e.message,
+          backgroundColor: "red",
+        });
+      }
     } else {
       // Show Error
+      Snackbar.show({
+        text: "Email and Password are required",
+        backgroundColor: "red",
+      });
     }
   };
 
@@ -63,15 +87,19 @@ export default function SignInScreen() {
           </View>
         </View>
         <View>
-          <TouchableOpacity
-            onPress={handleAddTrip}
-            style={{ backgroundColor: colors.button }}
-            className="my-6 rounded-full p-3 shadow-sm mx-2"
-          >
-            <Text className="text-center text-white font-bold text-lg">
-              Sign Up
-            </Text>
-          </TouchableOpacity>
+          {userLoading ? (
+            <Loading />
+          ) : (
+            <TouchableOpacity
+              onPress={handleAddTrip}
+              style={{ backgroundColor: colors.button }}
+              className="my-6 rounded-full p-3 shadow-sm mx-2"
+            >
+              <Text className="text-center text-white font-bold text-lg">
+                Sign Up
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     </ScreenWrapper>

@@ -7,13 +7,23 @@ import TripExpensesScreen from "../screens/TripExpensesScreen";
 import WelcomeScreen from "../screens/WelcomeScreen";
 import SignInScreen from "../screens/SignInScreen";
 import SignUpScreen from "../screens/SignUpScreen";
-import { useSelector } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth } from "../config/firebase";
+import { setUser } from "../redux/slices/user";
 
 const Stack = createNativeStackNavigator();
 
 export default function AppNavigation() {
   // Getting user from redux store
   const { user } = useSelector((state) => state.user);
+
+  const dispatch = useDispatch();
+
+  onAuthStateChanged(auth, (user) => {
+    console.log("user got: ", user);
+    dispatch(setUser(user));
+  });
 
   // If user has a value then we will see HomeScreen
   if (user) {
