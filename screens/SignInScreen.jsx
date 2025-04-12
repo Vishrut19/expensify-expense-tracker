@@ -28,6 +28,7 @@ export default function SignInScreen() {
         dispatch(setUserLoading(false));
       } catch (error) {
         dispatch(setUserLoading(false));
+        console.log(error.code, error.message);
         Snackbar.show({
           text: error.message,
           backgroundColor: "red",
