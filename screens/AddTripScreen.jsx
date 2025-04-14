@@ -44,8 +44,6 @@ export default function AddTripScreen() {
     }
   };
 
-  console.log(place, country);
-
   return (
     <ScreenWrapper>
       <View className="flex justify-between h-full mx-4">
