@@ -1,25 +1,17 @@
-require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), "scripts/autolinking")
-require File.join(File.dirname(`node --print "require.resolve('react-native/package.json')"`), "scripts/react_native_pods")
+const { withDangerousMod } = require("expo/config-plugins");
+const fs = require("fs");
+const path = require("path");
 
-require 'json'
-podfile_properties = JSON.parse(File.read(File.join(__dir__, 'Podfile.properties.json'))) rescue {}
+const RUBY_PATCH_FN = "def patch_expensify_fmt_base_h!(installer)";
+const REACT_CODEGEN_PATCH_FN =
+  "def patch_react_codegen_generate_specs_phase!(installer)";
+const EX_CONSTANTS_SCRIPT_PATCH_FN =
+  "def patch_ex_constants_generate_app_config_phase!(installer)";
 
-def ccache_enabled?(podfile_properties)
-  # Environment variable takes precedence
-  return ENV['USE_CCACHE'] == '1' if ENV['USE_CCACHE']
-
-  # Fall back to Podfile properties
-  podfile_properties['apple.ccacheEnabled'] == 'true'
-end
-
-ENV['EX_DEV_CLIENT_NETWORK_INSPECTOR'] ||= podfile_properties['EX_DEV_CLIENT_NETWORK_INSPECTOR']
-ENV['RCT_USE_RN_DEP'] ||= '1' if podfile_properties['ios.buildReactNativeFromSource'] != 'true'
-ENV['RCT_USE_PREBUILT_RNCORE'] ||= '1' if podfile_properties['ios.buildReactNativeFromSource'] != 'true'
-ENV['RCT_HERMES_V1_ENABLED'] ||= '1' if podfile_properties['expo.useHermesV1'] == 'true'
-platform :ios, podfile_properties['ios.deploymentTarget'] || '15.1'
-
-prepare_react_native_project!
-
+// fmt 11: -DFMT_USE_CONSTEVAL=0 is ignored because base.h redefines it via __cpp_consteval;
+// wrapping the auto-detect in #ifndef keeps the Xcode -D effective.
+const rubyMethod = (
+  `
 def patch_expensify_fmt_base_h!(installer)
   require 'fileutils'
   candidate_paths = [
@@ -95,7 +87,10 @@ PATCH
   end
 end
 
+`
+).trimStart();
 
+const reactCodegenRubyMethod = `
 def patch_react_codegen_generate_specs_phase!(installer)
   installer.pods_project.targets.each do |target|
     next unless target.name == 'ReactCodegen'
@@ -107,7 +102,9 @@ def patch_react_codegen_generate_specs_phase!(installer)
   end
 end
 
+`.trimStart();
 
+const exConstantsRubyMethod = `
 def patch_ex_constants_generate_app_config_phase!(installer)
   installer.pods_project.targets.each do |target|
     next unless target.name == 'EXConstants'
@@ -119,52 +116,14 @@ def patch_ex_constants_generate_app_config_phase!(installer)
   end
 end
 
+`.trimStart();
 
-target 'Expensify' do
-  use_expo_modules!
-
-  if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
-    config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"];
-  else
-    config_command = [
-      'node',
-      '--no-warnings',
-      '--eval',
-      'require(\'expo/bin/autolinking\')',
-      'expo-modules-autolinking',
-      'react-native-config',
-      '--json',
-      '--platform',
-      'ios'
-    ]
-  end
-
-  config = use_native_modules!(config_command)
-
-  use_frameworks! :linkage => podfile_properties['ios.useFrameworks'].to_sym if podfile_properties['ios.useFrameworks']
-  use_frameworks! :linkage => ENV['USE_FRAMEWORKS'].to_sym if ENV['USE_FRAMEWORKS']
-
-  use_react_native!(
-    :path => config[:reactNativePath],
-    :hermes_enabled => podfile_properties['expo.jsEngine'] == nil || podfile_properties['expo.jsEngine'] == 'hermes',
-    # An absolute path to your application root.
-    :app_path => "#{Pod::Config.instance.installation_root}/..",
-    :privacy_file_aggregation_enabled => podfile_properties['apple.privacyManifestAggregationEnabled'] != 'false',
-  )
-
-  post_install do |installer|
-    react_native_post_install(
-      installer,
-      config[:reactNativePath],
-      :mac_catalyst_enabled => false,
-      :ccache_enabled => ccache_enabled?(podfile_properties),
-    )
-
+const postInstallTail = `
     patch_react_codegen_generate_specs_phase!(installer)
     patch_ex_constants_generate_app_config_phase!(installer)
     patch_expensify_fmt_base_h!(installer)
 
-    # fmt: FMT_USE_CONSTEVAL workaround (must run after base.h patch; -D alone is overwritten by fmt)
+    # fmt: FMT_USE_CONSTEVAL workaround (must run after base.h patch)
     installer.pods_project.targets.each do |target|
       next unless target.name == 'fmt'
       target.build_configurations.each do |cfg|
@@ -174,6 +133,98 @@ target 'Expensify' do
         defs << 'FMT_USE_CONSTEVAL=0'
         cfg.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
       end
-    end
-  end
-end
+    end`;
+
+function withFmtPodFix(config) {
+  return withDangerousMod(config, [
+    "ios",
+    async (config) => {
+      const podfilePath = path.join(
+        config.modRequest.platformProjectRoot,
+        "Podfile"
+      );
+      let contents = fs.readFileSync(podfilePath, "utf8");
+
+      const anchor = "prepare_react_native_project!\n\n";
+      if (!contents.includes(anchor)) {
+        throw new Error(
+          "withFmtPodFix: expected prepare_react_native_project! block in Podfile"
+        );
+      }
+      let methodsToInsert = "";
+      if (!contents.includes(RUBY_PATCH_FN)) {
+        methodsToInsert += `${rubyMethod}\n`;
+      }
+      if (!contents.includes(REACT_CODEGEN_PATCH_FN)) {
+        methodsToInsert += `${reactCodegenRubyMethod}\n`;
+      }
+      if (!contents.includes(EX_CONSTANTS_SCRIPT_PATCH_FN)) {
+        methodsToInsert += `${exConstantsRubyMethod}\n`;
+      }
+      if (methodsToInsert) {
+        contents = contents.replace(anchor, `${anchor}${methodsToInsert}`);
+      }
+
+      if (
+        contents.includes("patch_expensify_fmt_base_h!(installer)") &&
+        !contents.includes("patch_react_codegen_generate_specs_phase!(installer)")
+      ) {
+        contents = contents.replace(
+          /(\n    )(patch_expensify_fmt_base_h!\(installer\)\n)/,
+          `$1patch_react_codegen_generate_specs_phase!(installer)\n$1patch_ex_constants_generate_app_config_phase!(installer)\n$1$2`
+        );
+      }
+      if (
+        contents.includes("patch_react_codegen_generate_specs_phase!(installer)") &&
+        !contents.includes(
+          "patch_ex_constants_generate_app_config_phase!(installer)"
+        )
+      ) {
+        contents = contents.replace(
+          /(\n    )(patch_react_codegen_generate_specs_phase!\(installer\)\n)/,
+          `$1$2$1patch_ex_constants_generate_app_config_phase!(installer)\n`
+        );
+      }
+
+      if (!contents.includes("patch_expensify_fmt_base_h!(installer)")) {
+        const match = contents.match(
+          /(post_install do \|installer\|\n    react_native_post_install\([\s\S]*?\n    \))\n  end\nend/m
+        );
+        if (!match) {
+          throw new Error(
+            "withFmtPodFix: Podfile post_install block not found; update the plugin for your Expo/RN template."
+          );
+        }
+        contents = contents.replace(
+          match[0],
+          `${match[1]}${postInstallTail}\n  end\nend`
+        );
+      }
+
+      fs.writeFileSync(podfilePath, contents);
+
+      // Paths with spaces: Expo/RN "Bundle React Native" phase uses backticks around a resolved
+      // script path; the shell then splits on spaces. Quote the path and invoke with bash.
+      const pbxPath = path.join(
+        config.modRequest.platformProjectRoot,
+        "Expensify.xcodeproj",
+        "project.pbxproj"
+      );
+      if (fs.existsSync(pbxPath)) {
+        let pbx = fs.readFileSync(pbxPath, "utf8");
+        const bundleBacktickBug =
+          '`\\"$NODE_BINARY\\" --print \\"require(\'path\').dirname(require.resolve(\'react-native/package.json\')) + \'/scripts/react-native-xcode.sh\'\\"`';
+        const bundleSpacesFix =
+          'RN_XCODE_SH=\\"$(\\"$NODE_BINARY\\" --print \\"require(\'path\').dirname(require.resolve(\'react-native/package.json\')) + \'/scripts/react-native-xcode.sh\'\\")\\"\\n/bin/bash \\"$RN_XCODE_SH\\"';
+        if (pbx.includes(bundleBacktickBug)) {
+          pbx = pbx.replace(bundleBacktickBug, bundleSpacesFix);
+          fs.writeFileSync(pbxPath, pbx);
+        }
+      }
+
+      return config;
+    },
+  ]);
+}
+
+module.exports = withFmtPodFix;
